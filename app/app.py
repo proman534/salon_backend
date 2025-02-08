@@ -21,7 +21,7 @@ jwt = JWTManager(app)
 class User(db.Model):
     __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
+    username = db.Column(db.String(80), nullable=False)
     password_hash = db.Column(db.String(120), nullable=False)
     first_name = db.Column(db.String(50), nullable=True)
     last_name = db.Column(db.String(50), nullable=True)
@@ -30,6 +30,7 @@ class User(db.Model):
     role = db.Column(db.String(20), nullable=False)
     gender = db.Column(db.String(10), nullable=True)
     date_of_birth = db.Column(db.String(10), nullable=True)
+    profile_picture = db.Column(db.String(100), nullable=False)
 
 # Customer model
 class Customer(db.Model):
@@ -293,10 +294,19 @@ def login():
     # Create a JWT token
     token = create_access_token(identity={'user_id': user.id, 'username': user.username, 'role': user.role})
 
+    user_details = {
+        "name": user.username,
+        "email": user.email,
+        "number":user.phone_number,
+        "profilePictureUrl": user.profile_picture if user.profile_picture else "https://via.placeholder.com/150"
+    }
+
     return jsonify({
         "message": "Login successful",
         "token": token,
+        "user": user_details,
         "role": user.role
+        
     }), 200
 
 
