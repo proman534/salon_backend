@@ -8,7 +8,7 @@ from datetime import datetime
 app = Flask(__name__)
 
 # Configuration
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:root@localhost/salon'  # Update with your MySQL URI
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:123456@localhost/salon'  # Update with your MySQL URI
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your_secret_key')  # Replace with your own secret key
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -336,6 +336,32 @@ def get_user_by_id(id):
 
 
 # Get all salons
+@app.route('/api/payments', methods=['POST'])
+@jwt_required()  # Requires authentication
+def process_payment():
+    try:
+        data = request.get_json()
+        user_id = get_jwt_identity()["user_id"]
+        amount = data.get("amount")
+        method = data.get("method")  # e.g., "credit_card", "paypal", "upi"
+
+        if not amount or not method:
+            return jsonify({"error": "Amount and method are required"}), 400
+
+        # Here, integrate your payment gateway logic (e.g., Stripe, Razorpay)
+        # Simulating a successful payment response
+        payment_response = {
+            "status": "success",
+            "transaction_id": "TXN12345678",
+            "amount": amount,
+            "method": method,
+            "user_id": user_id
+        }
+
+        return jsonify(payment_response), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == '__main__':
