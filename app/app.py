@@ -17,106 +17,34 @@ db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
 jwt = JWTManager(app)
 
-# User model
-class User(db.Model):
-    __tablename__ = 'users'
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    password_hash = db.Column(db.String(120), nullable=False)
-    first_name = db.Column(db.String(50), nullable=True)
-    last_name = db.Column(db.String(50), nullable=True)
-    email = db.Column(db.String(100), nullable=True)
-    phone_number = db.Column(db.String(20), nullable=True)
-    role = db.Column(db.String(20), nullable=False)
-    gender = db.Column(db.String(10), nullable=True)
-    date_of_birth = db.Column(db.String(10), nullable=True)
+from app import db
 
-# Customer model
-class Customer(db.Model):
-    __tablename__ = 'customers'
-    customer_id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    gender = db.Column(db.String(10), nullable=True)
-    date_of_birth = db.Column(db.String(10), nullable=True)
-    password_hash = db.Column(db.String(120), nullable=False)
-    first_name = db.Column(db.String(50), nullable=True)
-    last_name = db.Column(db.String(50), nullable=True)
-    email = db.Column(db.String(100), nullable=True)
-    phone_number = db.Column(db.String(20), nullable=True)
-    user = db.relationship('User', backref=db.backref('customers', lazy=True))
+class AuthGroup(db.Model):
+    __table__ = db.Table('auth_group', db.metadata, autoload_with=db.engine)
 
-# SalonOwner model
-class SalonOwner(db.Model):
-    __tablename__ = 'salon_owners'
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    salon_name = db.Column(db.String(100), nullable=True)
-    address_id = db.Column(db.Integer, db.ForeignKey('addresses.id'), nullable=True)  # Reference Address table
-    user = db.relationship('User', backref=db.backref('salon_owners', lazy=True))
-    address = db.relationship('Address', backref=db.backref('salon_owner_relation', uselist=False), 
-                              foreign_keys=[address_id])  # Rename the backref to `salon_owner_relation`
-    password_hash = db.Column(db.String(120), nullable=False)
-    first_name = db.Column(db.String(50), nullable=True)
-    last_name = db.Column(db.String(50), nullable=True)
-    email = db.Column(db.String(100), nullable=True)
-    phone_number = db.Column(db.String(20), nullable=True)
-    gender = db.Column(db.String(10), nullable=True)
+class AuthPermission(db.Model):
+    __table__ = db.Table('auth_permission', db.metadata, autoload_with=db.engine)
 
-# Address model
-class Address(db.Model):
-    __tablename__ = 'addresses'
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
-    salon_owners_id = db.Column(db.Integer, db.ForeignKey('salon_owners.id'), nullable=True)  # ForeignKey to salon_owners table
-    address_line = db.Column(db.String(255), nullable=False)
-    city = db.Column(db.String(100), nullable=False)
-    state = db.Column(db.String(100), nullable=False)
-    pin_code = db.Column(db.String(10), nullable=False)
-    country = db.Column(db.String(100), nullable=False)
-    created_at = db.Column(db.TIMESTAMP, nullable=True, default=datetime.utcnow, onupdate=datetime.utcnow)
+class UserDetails(db.Model):
+    __table__ = db.Table('myapp_userdetails', db.metadata, autoload_with=db.engine)
 
-    # Relationships
-    user = db.relationship('User', backref=db.backref('addresses', lazy=True), foreign_keys=[user_id])
-    salon_owner = db.relationship('SalonOwner', backref=db.backref('addresses', lazy=True), foreign_keys=[salon_owners_id])
-    
-    def __init__(self, address_line, city, state, pin_code, country, user_id=None, salon_owners_id=None):
-        self.address_line = address_line
-        self.city = city
-        self.state = state
-        self.pin_code = pin_code
-        self.country = country
-        self.user_id = user_id
-        self.salon_owners_id = salon_owners_id
+class OwnerDetails(db.Model):
+    __table__ = db.Table('myapp_ownerdetails', db.metadata, autoload_with=db.engine)
 
-    def __repr__(self):
-        return f"<Address {self.address_line}, {self.city}, {self.state}, {self.country}>"
-
-# Salons model (new table)
 class Salon(db.Model):
-    __tablename__ = 'salons'
-    salon_id = db.Column(db.Integer, primary_key=True)
-    salon_name = db.Column(db.String(100), nullable=False)
-    salon_owner_id = db.Column(db.Integer, db.ForeignKey('salon_owners.id'), nullable=False)
-    address_id = db.Column(db.Integer, db.ForeignKey('addresses.id'), nullable=False)
-    created_at = db.Column(db.TIMESTAMP, nullable=True, default=datetime.utcnow)
-    updated_at = db.Column(db.TIMESTAMP, nullable=True, default=datetime.utcnow, onupdate=datetime.utcnow)
-    image_name = db.Column(db.String(100), nullable=False)
-
-    # Relationships
-    salon_owner = db.relationship('SalonOwner', backref=db.backref('salons', lazy=True))
-    address = db.relationship('Address', backref=db.backref('salon', uselist=False))
-
-    def __init__(self, salon_name, salon_owner_id, address_id):
-        self.salon_name = salon_name
-        self.salon_owner_id = salon_owner_id
-        self.address_id = address_id
+    __table__ = db.Table('myapp_salon', db.metadata, autoload_with=db.engine)
 
 class Service(db.Model):
-    __tablename__ = 'services'
-    service_id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    salon_id = db.Column(db.Integer, nullable=False)
-    image_name = db.Column(db.String(100), nullable=False)
+    __table__ = db.Table('myapp_service', db.metadata, autoload_with=db.engine)
+
+class Appointment(db.Model):
+    __table__ = db.Table('myapp_appointment', db.metadata, autoload_with=db.engine)
+
+class BookedSlot(db.Model):
+    __table__ = db.Table('myapp_bookedslot', db.metadata, autoload_with=db.engine)
+
+class ServiceFeedback(db.Model):
+    __table__ = db.Table('myapp_servicefeedback', db.metadata, autoload_with=db.engine)
 
 @app.route('/api/services', methods=['GET'])
 def get_services():
@@ -127,6 +55,47 @@ def get_services():
         'image_name': service.image_name
     } for service in services]
     return jsonify({'services': services_list})
+
+@app.route('/users', methods=['GET'])
+def get_users():
+    users = UserDetails.query.all()
+    return jsonify([{'id': user.id, 'name': user.name, 'email': user.email} for user in users])
+
+@app.route('/users/<int:user_id>', methods=['GET'])
+def get_user(user_id):
+    user = UserDetails.query.get(user_id)
+    if user:
+        return jsonify({'id': user.id, 'name': user.name, 'email': user.email})
+    return jsonify({'message': 'User not found'}), 404
+
+@app.route('/users', methods=['POST'])
+def add_user():
+    data = request.json
+    new_user = UserDetails(name=data['name'], email=data['email'])
+    db.session.add(new_user)
+    db.session.commit()
+    return jsonify({'message': 'User added successfully'}), 201
+
+@app.route('/users/<int:user_id>', methods=['PUT'])
+def update_user(user_id):
+    user = UserDetails.query.get(user_id)
+    if user:
+        data = request.json
+        user.name = data.get('name', user.name)
+        user.email = data.get('email', user.email)
+        db.session.commit()
+        return jsonify({'message': 'User updated successfully'})
+    return jsonify({'message': 'User not found'}), 404
+
+@app.route('/users/<int:user_id>', methods=['DELETE'])
+def delete_user(user_id):
+    user = UserDetails.query.get(user_id)
+    if user:
+        db.session.delete(user)
+        db.session.commit()
+        return jsonify({'message': 'User deleted successfully'})
+    return jsonify({'message': 'User not found'}), 404
+
 
 @app.route('/api/service/<int:salon_id>', methods=['GET'])
 def get_service(salon_id):
