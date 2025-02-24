@@ -8,7 +8,7 @@ from datetime import datetime
 app = Flask(__name__)
 
 # Configuration
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:123456@localhost/salon'  # Update with your MySQL URI
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:root%40123@localhost/django'  # Update with your MySQL URI
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your_secret_key')  # Replace with your own secret key
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
