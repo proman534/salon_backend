@@ -8,7 +8,7 @@ from datetime import datetime
 app = Flask(__name__)
 
 # Configuration
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:root%40123@localhost/django'  # Update with your MySQL URI
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:123456@localhost/django'  # Update with your MySQL URI
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your_secret_key')  # Replace with your own secret key
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -17,42 +17,42 @@ db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
 jwt = JWTManager(app)
 
-from app import db
+with app.app_context():
+    class AuthGroup(db.Model):
+        __table__ = db.Table('auth_group', db.metadata, autoload_with=db.engine)
+    class AuthPermission(db.Model):
+        __table__ = db.Table('auth_permission', db.metadata, autoload_with=db.engine)
+    class UserDetails(db.Model):
+        __table__ = db.Table('myapp_userdetails', db.metadata, autoload_with=db.engine)
+    class OwnerDetails(db.Model):
+        __table__ = db.Table('myapp_ownerdetails', db.metadata, autoload_with=db.engine)
+    class Salon(db.Model):
+        __table__ = db.Table('myapp_salon', db.metadata, autoload_with=db.engine)
+    class Category(db.Model):
+        __table__ = db.Table('myapp_category', db.metadata, autoload_with=db.engine)
+    class Staff(db.Model):
+        __table__ = db.Table('myapp_staff', db.metadata, autoload_with=db.engine)
+    class Service(db.Model):
+        __table__ = db.Table('myapp_service', db.metadata, autoload_with=db.engine)
+    class Appointment(db.Model):
+        __table__ = db.Table('myapp_appointment', db.metadata, autoload_with=db.engine)
+    class BookedSlot(db.Model):
+        __table__ = db.Table('myapp_bookedslot', db.metadata, autoload_with=db.engine)
+    class ServiceFeedback(db.Model):
+        __table__ = db.Table('myapp_servicefeedback', db.metadata, autoload_with=db.engine)
 
-class AuthGroup(db.Model):
-    __table__ = db.Table('auth_group', db.metadata, autoload_with=db.engine)
-
-class AuthPermission(db.Model):
-    __table__ = db.Table('auth_permission', db.metadata, autoload_with=db.engine)
-
-class UserDetails(db.Model):
-    __table__ = db.Table('myapp_userdetails', db.metadata, autoload_with=db.engine)
-
-class OwnerDetails(db.Model):
-    __table__ = db.Table('myapp_ownerdetails', db.metadata, autoload_with=db.engine)
-
-class Salon(db.Model):
-    __table__ = db.Table('myapp_salon', db.metadata, autoload_with=db.engine)
-
-class Service(db.Model):
-    __table__ = db.Table('myapp_service', db.metadata, autoload_with=db.engine)
-
-class Appointment(db.Model):
-    __table__ = db.Table('myapp_appointment', db.metadata, autoload_with=db.engine)
-
-class BookedSlot(db.Model):
-    __table__ = db.Table('myapp_bookedslot', db.metadata, autoload_with=db.engine)
-
-class ServiceFeedback(db.Model):
-    __table__ = db.Table('myapp_servicefeedback', db.metadata, autoload_with=db.engine)
+@app.route('/')
+def index():
+    service = get_services()
+    return jsonify(service)
 
 @app.route('/api/services', methods=['GET'])
 def get_services():
     services = Service.query.all()
     services_list = [{
-        'id': service.service_id,
+        'id': service.id,
         'name': service.name,
-        'image_name': service.image_name
+        'image_name': service.image
     } for service in services]
     return jsonify({'services': services_list})
 
@@ -129,114 +129,6 @@ def get_salons():
     } for salon in salons]
     return jsonify({'salons': salons_list})
 
-# Register a new customer
-@app.route('/register/customer', methods=['POST'])
-def register_customer():
-    data = request.get_json()
-    
-    # User details
-    username = data['username']
-    password = data['password']
-    first_name = data.get('first_name', None)
-    last_name = data.get('last_name', None)
-    email = data.get('email', None)
-    phone_number = data.get('phone_number', None)
-    gender = data.get('gender', None)
-    date_of_birth = data.get('date_of_birth', None)
-    
-    # Address details
-    address_line = data['address_line']
-    city = data['city']
-    state = data['state']
-    pin_code = data['pin_code']
-    country = data['country']
-    
-    # Check if username exists
-    user = User.query.filter_by(username=username).first()
-    if user:
-        return jsonify({"message": "Username already exists"}), 400
-
-    # Hash password
-    password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
-
-    # Create user with role 'customer'
-    new_user = User(username=username, password_hash=password_hash, first_name=first_name, last_name=last_name,
-                    email=email, phone_number=phone_number, role='customer', gender=gender, date_of_birth=date_of_birth)
-    db.session.add(new_user)
-    db.session.commit()
-
-    # Create address entry
-    new_address = Address(address_line=address_line, city=city, state=state, pin_code=pin_code,
-                          country=country, user_id=new_user.id)
-    db.session.add(new_address)
-    db.session.commit()
-
-    # Create customer entry
-    new_customer = Customer(user_id=new_user.id, gender=gender, date_of_birth=date_of_birth,password_hash=password_hash, first_name=first_name, last_name=last_name,
-                    email=email, phone_number=phone_number)
-    db.session.add(new_customer)
-    db.session.commit()
-
-    return jsonify({"message": "Customer registered successfully"}), 201
-
-
-# Register a new salon owner
-@app.route('/register/salon_owner', methods=['POST'])
-def register_salon_owner():
-    data = request.get_json()
-    
-    # User details
-    username = data['username']
-    password = data['password']
-    first_name = data.get('first_name', None)
-    last_name = data.get('last_name', None)
-    email = data.get('email', None)
-    phone_number = data.get('phone_number', None)
-    gender = data.get('gender', None)
-    
-    # Salon details
-    salon_name = data.get('salon_name', None)
-    
-    # Address details
-    address_line = data['address_line']
-    city = data['city']
-    state = data['state']
-    pin_code = data['pin_code']
-    country = data['country']
-    
-    # Check if username exists
-    user = User.query.filter_by(username=username).first()
-    if user:
-        return jsonify({"message": "Username already exists"}), 400
-
-    # Hash password
-    password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
-
-    # Create user with role 'salon_owner'
-    new_user = User(username=username, password_hash=password_hash, first_name=first_name, last_name=last_name,
-                    email=email, phone_number=phone_number, role='salon_owner', gender=gender)
-    db.session.add(new_user)
-    db.session.commit()
-
-    # Create address entry
-    new_address = Address(address_line=address_line, city=city, state=state, pin_code=pin_code,
-                          country=country, salon_owners_id=new_user.id)
-    db.session.add(new_address)
-    db.session.commit()
-
-    # Create salon owner entry
-    new_salon_owner = SalonOwner(user_id=new_user.id, salon_name=salon_name, password_hash=password_hash, first_name=first_name, last_name=last_name,
-                    email=email, phone_number=phone_number, gender=gender)
-    db.session.add(new_salon_owner)
-    db.session.commit()
-
-    # Create salon entry
-    new_salon = Salon(salon_name=salon_name, salon_owner_id=new_salon_owner.id, address_id=new_address.id)
-    db.session.add(new_salon)
-    db.session.commit()
-
-    return jsonify({"message": "Salon Owner registered successfully"}), 201
-
 
 # Login an existing user
 @app.route('/login', methods=['POST'])
@@ -249,10 +141,10 @@ def login():
         return jsonify({"message": "Missing identifier or password"}), 400
 
     # Query the database to find the user by username, email, or phone
-    user = User.query.filter(
-        (User.username == identifier) | 
-        (User.email == identifier) | 
-        (User.phone_number == identifier)
+    user = UserDetails.query.filter(
+        (UserDetails.username == identifier) | 
+        (UserDetails.email == identifier) | 
+        (UserDetails.phone_number == identifier)
     ).first()
 
     # Validate user and password
@@ -280,7 +172,7 @@ def protected():
 @app.route('/users', methods=['GET'])
 @jwt_required()
 def get_all_users():
-    users = User.query.all()
+    users = UserDetails.query.all()
     users_list = [{'user_id': user.id, 'username': user.username, 'role': user.role} for user in users]
     return jsonify(users_list), 200
 
@@ -288,7 +180,7 @@ def get_all_users():
 @app.route('/users/<int:id>', methods=['GET'])
 @jwt_required()
 def get_user_by_id(id):
-    user = User.query.get(id)
+    user = UserDetails.query.get(id)
     if user:
         return jsonify({'user_id': user.id, 'username': user.username, 'role': user.role}), 200
     return jsonify({'message': 'User not found'}), 404
