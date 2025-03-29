@@ -7,6 +7,7 @@ from datetime import datetime
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut
 from math import radians, sin, cos, sqrt, atan2
+import requests
 
 
 app = Flask(__name__)
@@ -15,6 +16,7 @@ app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:root%40123@localhost/django'  # Update with your MySQL URI
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your_secret_key')  # Replace with your own secret key
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['JWT_JSON_KEY'] = 'identity'
 
 # Initialize extensions
 db = SQLAlchemy()
@@ -46,6 +48,9 @@ with app.app_context():
     class Service(db.Model):
         __table__ = db.Table('myapp_service', db.metadata, autoload_with=db.engine)
 
+    class ServiceLink(db.Model):
+        __table__ = db.Table('myapp_salon_services', db.metadata, autoload_with=db.engine)    
+
     class Appointment(db.Model):
         __table__ = db.Table('myapp_appointment', db.metadata, autoload_with=db.engine)
 
@@ -55,7 +60,97 @@ with app.app_context():
     class ServiceFeedback(db.Model):
         __table__ = db.Table('myapp_servicefeedback', db.metadata, autoload_with=db.engine)
 
+    class Category(db.Model):
+        __table__ = db.Table('myapp_category', db.metadata, autoload_with=db.engine)
+
     db.create_all()
+
+
+@app.route('/api/services/create', methods=['POST'])
+@jwt_required()  # Requires authentication
+def create_service():
+    try:
+        data = request.get_json()
+        
+        # Get authenticated owner's ID
+        current_user_id = int(get_jwt_identity())
+
+        print(f"Authenticated owner ID: {current_user_id}")  # Debugging line
+
+        # Fetch the salon owner details
+        owner = db.session.query(OwnerDetails).filter_by(id=current_user_id).first()
+        if not owner:
+            return jsonify({'error': 'Unauthorized access - Owner not found'}), 403
+
+        print(f"Owner found: {owner.username}, ID: {owner.id}, Salon ID: {owner.salon_id}")  # Debugging line
+
+        # Extract required fields for service
+        name = data.get('name')
+        price = data.get('price')
+        duration = data.get('duration')
+        category_id = data.get('category_id')
+        image = data.get('image')
+        salon_id = data.get('salon_id')
+
+        # Validate required fields
+        if not all([name, price, duration, salon_id]):
+            return jsonify({
+                'error': 'Missing required fields. Please provide name, price, duration, and salon_id.'
+            }), 400
+
+        # Ensure the salon exists and belongs to the authenticated owner
+        salon = Salon.query.filter_by(id=salon_id).first()
+        if not salon:
+            return jsonify({'error': 'Salon not found'}), 404
+        
+        if owner.salon_id != salon.id:
+            return jsonify({'error': 'Access denied. You can only create services for your own salon'}), 403
+
+        print(f"Salon verified: {salon.salon_name}, Owner ID: {salon.id}")  # Debugging line
+
+        # Check if category exists if category_id is provided
+        if category_id:
+            category = Category.query.get(category_id)
+            if not category:
+                return jsonify({'error': 'Category not found'}), 404
+
+        # Create new service
+        new_service = Service(
+            name=name,
+            price=price,
+            duration=duration,
+            category_id=category_id,
+            image=image
+        )
+
+        db.session.add(new_service)
+        db.session.commit()
+
+        # Associate service with the salon
+        new_salon_service = db.Table('myapp_salon_services', db.metadata, autoload_with=db.engine).insert().values(
+            salon_id=salon_id,
+            service_id=new_service.id
+        )
+        db.session.execute(new_salon_service)
+        db.session.commit()
+
+        return jsonify({
+            'message': 'Service created successfully',
+            'service': {
+                'id': new_service.id,
+                'name': new_service.name,
+                'price': float(new_service.price),
+                'duration': new_service.duration,
+                'category_id': new_service.category_id,
+                'image': new_service.image
+            }
+        }), 201
+
+    except Exception as e:
+        db.session.rollback()  # Rollback in case of error
+        print(f"Error: {str(e)}")  # Debugging line
+        return jsonify({'error': f'Failed to create service: {str(e)}'}), 500
+
 
 @app.route('/api/services', methods=['GET'])
 def get_services():
@@ -79,13 +174,6 @@ def get_user(user_id):
         return jsonify({'id': user.id, 'name': user.name, 'email': user.email})
     return jsonify({'message': 'User not found'}), 404
 
-@app.route('/users', methods=['POST'])
-def add_user():
-    data = request.json
-    new_user = UserDetails(name=data['name'], email=data['email'])
-    db.session.add(new_user)
-    db.session.commit()
-    return jsonify({'message': 'User added successfully'}), 201
 
 @app.route('/users/<int:user_id>', methods=['PUT'])
 def update_user(user_id):
@@ -109,53 +197,85 @@ def delete_user(user_id):
 
 
 @app.route('/api/salon_services/<int:id>', methods=['GET'])
+@jwt_required()
 def get_salon_details(id):
     try:
-        # Fetch the salon along with its related services
-        salon = Salon.query.filter_by(id=id).first()
+        # Get the authenticated user's ID from JWT token
+        current_user_id = int(get_jwt_identity())  # Convert back to integer
 
+        print(f"Authenticated owner ID: {current_user_id}")  # Debugging line
+
+        # Fetch the salon owner details
+        owner = db.session.query(OwnerDetails).filter_by(id=current_user_id).first()
+        if not owner:
+            return jsonify({'error': 'Unauthorized access - Owner not found'}), 403
+
+        print(f"Owner found: {owner.username}, ID: {owner.id}, Salon ID: {owner.salon_id}")  # Debugging line
+
+        # Ensure the requested salon belongs to the authenticated owner
+        salon = Salon.query.filter_by(id=id).first()
         if not salon:
             return jsonify({'error': 'Salon not found'}), 404
 
-        # If latitude and longitude are missing, fetch them
-        
+        if owner.salon_id != salon.id:
+            return jsonify({'error': 'Access denied. You can only access your own salon details'}), 403
 
-        # Fetch related services
-        services = Service.query.filter_by(id=salon.id).all()
-        services_list = [
-            {
-                'id': service.id,
-                'name': service.name,
-                'image': service.image,
-            }
-            for service in services
-        ]
+        print(f"Salon found: {salon.salon_name}, Linked Owner ID: {salon.id}")  # Debugging line
 
-        # Construct response
+        # Fetch related services for the salon
+        services = db.session.query(Service).join(ServiceLink).filter(ServiceLink.salon_id == id).all()
+        services_list = [{
+            'id': service.id,
+            'name': service.name,
+            'image': service.image,
+            'category': service.category_id
+        } for service in services]
+
+        # Fetch related categories based on the services
+        category_ids = list(set([s.category_id for s in services if s.category_id]))  # Avoid duplicates
+        categories = Category.query.filter(Category.id.in_(category_ids)).all()
+        categories_list = [{
+            'id': category.id,
+            'name': category.name,
+            'image': category.image
+        } for category in categories]
+
+        # Build the response
         response = {
             'salon': {
                 'id': salon.id,
-                'name': salon.name,
-                'address': salon.address,
-                'latitude': salon.latitude,
-                'longitude': salon.longitude,
+                'name': salon.salon_name,
+                'address': salon.address
             },
-            'services': services_list
+            'owner': {
+                'id': owner.id,
+                'username': owner.username,
+                'first_name': owner.first_name,
+                'last_name': owner.last_name,
+                'email': owner.email,
+                'phone': owner.phone,
+                'gender': owner.gender,
+                'is_active': owner.is_active
+            },
+            'services': services_list,
+            'categories': categories_list
         }
 
         return jsonify(response), 200
 
     except Exception as e:
-        print(f"Error fetching salon details: {e}")
-        return jsonify({'error': 'Unable to fetch salon details'}), 500
+        print(f"Error: {str(e)}")  # Debugging line
+        return jsonify({'error': f"An error occurred: {str(e)}"}), 500
+
+
 
 @app.route('/api/salons', methods=['GET'])
 def get_salons():
     salons = Salon.query.all()
     salons_list = [{
         'id': salon.id,
-        'name': salon.name,
-        'image_name': salon.name
+        'name': salon.salon_name,
+        'image_name': salon.image
     } for salon in salons]
     return jsonify({'salons': salons_list})
 
@@ -250,22 +370,6 @@ def register_salon_owner():
         return jsonify({"error": "Invalid address. Could not fetch latitude and longitude."}), 400
 
     try:
-        # Create new salon owner
-        new_owner = OwnerDetails(
-            username=username, password=password_hash,
-            first_name=data['first_name'], last_name=data['last_name'],
-            salon_name=data['salon_name'],
-            email=email, phone=data['phone'], gender=data['gender'],
-            address=data['address'], city=data['city'], state=data['state'],
-            pin_code=data['pin_code'], country=data['country'],
-            is_superuser=data.get('is_superuser', False),
-            is_staff=data.get('is_staff', False),
-            is_active=data.get('is_active', True),
-            date_joined=datetime.utcnow()
-        )
-
-        db.session.add(new_owner)
-        db.session.commit()
 
         # Create new salon entry linked to the owner
         new_salon = Salon(
@@ -279,6 +383,26 @@ def register_salon_owner():
 
         db.session.add(new_salon)
         db.session.commit()
+
+        # Create new salon owner
+        new_owner = OwnerDetails(
+            username=username, password=password_hash,
+            first_name=data['first_name'], last_name=data['last_name'],
+            salon_name=data['salon_name'],
+            email=email, phone=data['phone'], gender=data['gender'],
+            address=data['address'], city=data['city'], state=data['state'],
+            pin_code=data['pin_code'], country=data['country'],
+            is_superuser=data.get('is_superuser', False),
+            is_staff=data.get('is_staff', False),
+            is_active=data.get('is_active', True),
+            date_joined=datetime.utcnow(),
+            salon_id=new_salon.id
+        )
+
+        db.session.add(new_owner)
+        db.session.commit()
+
+        
 
         return jsonify({"message": "Salon Owner registered successfully", "salon_id": new_salon.id}), 201
 
@@ -344,7 +468,8 @@ def owner_login():
     if not user or not bcrypt.check_password_hash(user.password, password):
         return jsonify({"message": "Invalid credentials"}), 400
     
-    token = create_access_token(identity={'user_id': user.id, 'username': user.username})
+    token = create_access_token(identity=str(user.id))  # Convert to string
+
     
     return jsonify({
         "message": "Login successful",
@@ -389,90 +514,203 @@ def process_payment():
         return jsonify({"error": str(e)}), 500
 
 
-# Add these new routes to the existing Flask application
+# ... existing code ...
 
-@app.route('/api/nearby_salons', methods=['GET'])
+# Calculate distance between two coordinates
+def calculate_distance(lat1, lon1, lat2, lon2):
+    # Earth radius in kilometers
+    R = 6371.0
+    
+    lat1_rad = radians(lat1)
+    lon1_rad = radians(lon1)
+    lat2_rad = radians(lat2)
+    lon2_rad = radians(lon2)
+    
+    dlon = lon2_rad - lon1_rad
+    dlat = lat2_rad - lat1_rad
+    
+    a = sin(dlat / 2)**2 + cos(lat1_rad) * cos(lat2_rad) * sin(dlon / 2)**2
+    c = 2 * atan2(sqrt(a), sqrt(1 - a))
+    
+    distance = R * c
+    return distance
+
+# Get nearby salons based on user location
+GEOCODE_API_URL = "https://nominatim.openstreetmap.org/search"
+
+def get_coordinates_from_address(address):
+    """Fetch latitude and longitude for a given address using OpenStreetMap API."""
+    try:
+        params = {"q": address, "format": "json", "limit": 1}
+        response = requests.get(GEOCODE_API_URL, params=params)
+        data = response.json()
+        if data:
+            return float(data[0]['lat']), float(data[0]['lon'])
+    except Exception as e:
+        print("Error fetching coordinates:", e)
+    return None, None
+
+@app.route('/api/salons/nearby', methods=['GET', 'POST'])
 def get_nearby_salons():
     try:
-        # Get user's current location from query parameters
-        user_lat = float(request.args.get('lat'))
-        user_lon = float(request.args.get('lon'))
-        
-        # Fetch all salons from the database
-        salons = Salon.query.all()
-        
-        # Calculate distances and filter nearby salons
-        nearby_salons = []
-        for salon in salons:
-            distance = calculate_distance(user_lat, user_lon, salon.latitude, salon.longitude)
+        if request.method == 'POST':
+            data = request.get_json()
+            user_lat = data.get('latitude')
+            user_lon = data.get('longitude')
+            radius = data.get('radius', 10)
+            user_id = data.get('id')  # Updated to match `id` in `UserDetails`
+        else:  # Handle GET request
+            user_lat = request.args.get('lat', type=float)
+            user_lon = request.args.get('lon', type=float)
+            radius = request.args.get('radius', default=10, type=float)
+            user_id = request.args.get('id', type=int)
+
+        # If latitude & longitude are missing, fetch from the user's address
+        if not user_lat or not user_lon:
+            if not user_id:
+                return jsonify({'error': 'User ID is required when lat/lon is missing'}), 400
             
-            # Add salons within 20 km
-            if distance <= 20:
-                nearby_salons.append({
-                    'id': salon.id,
-                    'name': salon.name,
-                    'address': salon.address,
-                    'distance': round(distance, 2),
-                    'latitude': salon.latitude,
-                    'longitude': salon.longitude
-                })
-        
-        # Sort salons by distance
+            user = UserDetails.query.filter_by(id=user_id).first()
+            if not user or not user.address_line:
+                return jsonify({'error': 'Address not found for user'}), 400
+            
+            user_lat, user_lon = get_coordinates_from_address(user.address_line)
+            if not user_lat or not user_lon:
+                return jsonify({'error': 'Failed to get coordinates from address'}), 400
+
+        salons = Salon.query.all()
+        nearby_salons = []
+
+        for salon in salons:
+            if salon.latitude and salon.longitude:
+                distance = calculate_distance(
+                    float(user_lat), float(user_lon),
+                    float(salon.latitude), float(salon.longitude)
+                )
+                if distance <= radius:
+                    nearby_salons.append({
+                        'id': salon.id,
+                        'name': salon.salon_name,
+                        'address': salon.address,
+                        'latitude': salon.latitude,
+                        'longitude': salon.longitude,
+                        'distance': round(distance, 2),
+                        'image': salon.image
+                    })
+
         nearby_salons.sort(key=lambda x: x['distance'])
-        
-        return jsonify({'salons': nearby_salons})
-    
+        return jsonify({'salons': nearby_salons}), 200
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/search_suggestions', methods=['GET'])
-def get_search_suggestions():
+
+# Get all cities/regions
+@app.route('/api/regions', methods=['GET'])
+def get_regions():
     try:
-        query = request.args.get('query', '').lower()
-        
-        # Combine search across multiple tables
-        salon_suggestions = Salon.query.filter(
-            Salon.name.ilike(f'%{query}%')
-        ).limit(5).all()
-        
-        service_suggestions = Service.query.filter(
-            Service.name.ilike(f'%{query}%')
-        ).limit(5).all()
-        
-        # Combine and deduplicate suggestions
-        suggestions = set()
-        
-        for salon in salon_suggestions:
-            suggestions.add(salon.name)
-        
-        for service in service_suggestions:
-            suggestions.add(service.name)
-        
-        return jsonify({
-            'suggestions': list(suggestions)
-        })
-    
+        # Fetch distinct cities from OwnerDetails table (linked via salon_id)
+        regions = db.session.query(OwnerDetails.city).distinct().all()
+        region_list = [region[0] for region in regions if region[0]]
+
+        return jsonify({'regions': region_list}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# Optional: Add a route to get services by category
-@app.route('/api/services/category', methods=['GET'])
-def get_services_by_category():
+
+# Get salons by region/city
+@app.route('/api/salons/region/<region>', methods=['GET'])
+def get_salons_by_region(region):
     try:
-        category = request.args.get('category')
-        services = Service.query.filter_by(category=category).all()
+        # Fetch salons by joining Salon and OwnerDetails based on salon_id
+        salons = db.session.query(Salon).join(OwnerDetails).filter(OwnerDetails.city == region).all()
         
-        services_list = [{
+        salon_list = [{
+            'id': salon.id,
+            'name': salon.salon_name,
+            'address': salon.address,
+            'image': salon.image
+        } for salon in salons]
+        
+        return jsonify({'salons': salon_list}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# Get all categories
+@app.route('/api/categories', methods=['GET'])
+def get_categories():
+    try:
+        categories = Category.query.all()
+        category_list = [{
+            'id': category.id,
+            'name': category.name,
+            'image': category.image
+        } for category in categories]
+        
+        return jsonify({'categories': category_list}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Get services by category
+@app.route('/api/services/category/<int:category_id>', methods=['GET'])
+def get_services_by_category(category_id):
+    try:
+        services = Service.query.filter_by(category_id=category_id).all()
+        service_list = [{
             'id': service.id,
             'name': service.name,
-            'category': service.category,
+            'price': service.price,
+            'duration': service.duration,
             'image': service.image
         } for service in services]
         
-        return jsonify({'services': services_list})
-    
+        return jsonify({'services': service_list}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+# Search endpoint for salons, categories, and services
+@app.route('/api/search', methods=['GET'])
+def search():
+    try:
+        query = request.args.get('q', '')
+        if not query:
+            return jsonify({'salons': [], 'categories': [], 'services': []}), 200
+            
+        # Search salons
+        salons = Salon.query.filter(Salon.salon_name.like(f'%{query}%')).all()
+        salon_results = [{
+            'id': salon.id,
+            'name': salon.salon_name,
+            'type': 'salon',
+            'image': salon.image
+        } for salon in salons]
+        
+        # Search categories
+        categories = Category.query.filter(Category.name.like(f'%{query}%')).all()
+        category_results = [{
+            'id': category.id,
+            'name': category.name,
+            'type': 'category',
+            'image': category.image
+        } for category in categories]
+        
+        # Search services
+        services = Service.query.filter(Service.name.like(f'%{query}%')).all()
+        service_results = [{
+            'id': service.id,
+            'name': service.name,
+            'type': 'service',
+            'image': service.image
+        } for service in services]
+        
+        # Combine results
+        all_results = salon_results + category_results + service_results
+        
+        return jsonify({'results': all_results}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 if __name__ == '__main__':
     app.run(debug=True)
